@@ -1,8 +1,10 @@
 #include <ncurses.h>
 #include <errno.h>
+#include <stdio.h>
 #include <termios.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/ioctl.h>
 
 /*
  *    DEFINE
@@ -10,13 +12,20 @@
 
 typedef struct {
   struct termios orginanl_config;
+  int height;
+  int width;
 
-}system_config;
+} system_config;
 
 system_config screen;
 
+typedef struct{
+  char character;
+  int age;
+  int timeToDie;
+} element;
 
-
+element *screenData;
 
 /*
  *    TERMINAL 
@@ -64,14 +73,56 @@ void enableRawMode(){
 }
 
 /*
- *    EDITOR
+ *    Screen
  */
 
-void editorExit(){
+int screenGetSize_NonPosix(int *height, int *width){
+  if ((write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12)) != 12)
+    return -1;
+
+  if ((write(STDOUT_FILENO, "\x1b[6n", 4)) != 4)
+    return -1;
+
+
+  ssize_t i = 0;
+  char buf[32];
+
+  while (i < sizeof(buf)-1){
+    if (read(STDIN_FILENO, &buf[i], 1) != 1)
+      break;
+    if (buf[i] == 'R')
+      break;
+    i++;
+  }
+
+  buf[i] = '\0';
+
+  if (buf[0] != '\x1b' ||  buf[1] != '[') return -1;
+  if ((sscanf(&buf[2], "%d;%d", height, width) != 2)) return -1; 
+  
+  return 0;
+
+
+}
+
+int screenGetSize(int *height, int *width){
+  struct winsize screenWindowSize;
+  if ((ioctl(STDIN_FILENO, TIOCGWINSZ, &screenWindowSize) == -1) || screenWindowSize.ws_col == 0){
+    if ((screenGetSize_NonPosix(height, width)) == -1)
+      return -1;
+  } else {
+
+    *height = screenWindowSize.ws_row;
+    *width = screenWindowSize.ws_col;
+  }
+  return 0;
+}
+
+void screenExit(){
   disabelRawMode();
 }
 
-int editorReadKey(){
+int screenReadKey(){
   int nread;
   char c;
 
@@ -81,28 +132,45 @@ int editorReadKey(){
   }
   
   if (c == 'q'){
-    editorExit();
+    screenExit();
     return 1;
   }
 
   return c;
 }
 
-void editorReloadScreen(){
-  char c = editorReadKey();
+void screenReloadScreen(){
+  char c = screenReadKey();
 
   write(STDOUT_FILENO, "\x1b[H", 3);
   write(STDOUT_FILENO, "\x1b[2J", 4);
   write(STDOUT_FILENO, "\x1b[?25l", 6);
+
+  char data[32];
+  int len = snprintf(data, sizeof(data), "height : %d, width : %d" , screen.height, screen.width);
+  data[len] = '\0';
+
+  write(STDOUT_FILENO, data, len );
 }
 
+/*
+ *    INITIALIZAATION
+ */
+
+
+void init(){
+  write(STDOUT_FILENO, "\x1b[?1049h", 8);
+  if (screenGetSize(&screen.height, &screen.width) == -1)
+    die("window size");
+
+}
 
 int main(int argc, char *arg[]){
   enableRawMode();
-  write(STDOUT_FILENO, "\x1b[?1049h", 8);
+  init();
 
   while (1){
-    editorReloadScreen();
+    screenReloadScreen();
   }
   return 0;
 
