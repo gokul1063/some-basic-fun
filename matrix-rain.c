@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
+#include <time.h>
 
 /*
  *    DEFINE
@@ -26,6 +27,16 @@ typedef struct{
 } element;
 
 element *screenData;
+
+/*
+ *      HELPER FUNCTION
+ */
+
+double generateRandomNumber(int low, int high){
+  double result = low + (double) rand()/RAND_MAX * (high - low);
+  return result;
+
+}
 
 /*
  *    TERMINAL 
@@ -146,11 +157,20 @@ void screenReloadScreen(){
   write(STDOUT_FILENO, "\x1b[2J", 4);
   write(STDOUT_FILENO, "\x1b[?25l", 6);
 
+
+
   char data[32];
-  int len = snprintf(data, sizeof(data), "height : %d, width : %d" , screen.height, screen.width);
+  int len = snprintf(data, sizeof(data), "height : %d, width : %d\n" , screen.height, screen.width);
   data[len] = '\0';
 
   write(STDOUT_FILENO, data, len );
+
+
+  char data1[32];
+  double randomNumber = generateRandomNumber(50,100);
+  int len1 = snprintf(data1, sizeof(data), "random number : %.2f\n", randomNumber);
+  write(STDOUT_FILENO, data1, len1);
+
 }
 
 /*
@@ -162,6 +182,7 @@ void init(){
   write(STDOUT_FILENO, "\x1b[?1049h", 8);
   if (screenGetSize(&screen.height, &screen.width) == -1)
     die("window size");
+  srand((unsigned int) time(NULL));
 
 }
 
