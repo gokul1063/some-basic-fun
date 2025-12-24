@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <time.h>
+#include <signal.h>
+#include <string.h>
+
 
 /*
  *    DEFINE
@@ -15,10 +18,19 @@ typedef struct {
   struct termios orginanl_config;
   int height;
   int width;
+  int max_height;
+  int max_width;
+  volatile sig_atomic_t screenSizeCH;
 
 } system_config;
 
 system_config screen;
+
+typedef struct {
+  char *data;
+  int size;
+
+} screenBuffer;
 
 typedef struct{
   char character;
@@ -27,20 +39,48 @@ typedef struct{
 } element;
 
 element *screenData;
+char **screenArray;
+screenBuffer *screenBufferArray;
+
+/*
+ * predefines
+ */
+
+int screenGetSize(int *height, int *width);
+void die(const char* error);
 
 /*
  *      HELPER FUNCTION
  */
 
-double generateRandomNumber(int low, int high){
-  double result = low + (double) rand()/RAND_MAX * (high - low);
-  return result;
+
+void appendScreenBuffer(screenBuffer *array, char *str, int len){
+  char *new = realloc(array->data, array->size + len);
+  if (new == NULL)
+    die("realloc in appendScreenBuffer");
+  memcpy(&new[array->size], str, len);
+  array->data = new;
+  array->size += len;
 
 }
 
-/*
- *    TERMINAL 
- */
+void freeScreenBuffer(screenBuffer **array){
+  free((*array)->data);
+  free(array);
+
+}
+
+void clearScreenBuffer(screenBuffer **array){
+  free((*array)->data);
+  (*array)->data = NULL;
+  (*array)->size = 0;
+}
+
+void initScreenBuffer(screenBuffer **array){
+  *array = (screenBuffer*)malloc(sizeof(screenBuffer));
+  (*array)->data = NULL;
+  (*array)->size = 0;
+}
 
 void die(const char* error){
   write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -50,6 +90,54 @@ void die(const char* error){
   exit(1);
 
 }
+
+int generateRandomNumber(int low, int high){
+  int result = low + (int) ((double)rand()/RAND_MAX * (high - low));
+  return result;
+
+}
+
+void sizeChangeHandler(int signo){
+  (void)signo;
+  screen.screenSizeCH = 1;
+
+}
+
+void randomizeScreenArray(){
+  for (int row = 0; row < screen.height; row++){
+    for (int col = 0; col < screen.width; col++){
+      screenArray[row][col] = generateRandomNumber(33, 126);
+    }
+  }
+}
+
+void screenArrayInit(){
+  screenArray = malloc(screen.height * sizeof(char*));
+  for (int row = 0 ; row < screen.height ; row++){
+    screenArray[row] = (char*) malloc(screen.width * sizeof(char *));
+  }
+}
+
+void screenArrayUpdate(){
+  clearScreenBuffer(&screenBufferArray);
+  initScreenBuffer(&screenBufferArray);
+  if (screenGetSize(&screen.height, &screen.width) == -1)
+    die("window size");
+  screenArrayInit();
+
+  for (int row = 0; row < screen.height; row++){
+    for (int col = 0; col < screen.width; col++){
+      screenArray[row][col] = generateRandomNumber(33, 126);
+    }
+  }
+
+}
+
+
+/*
+ *    TERMINAL 
+ */
+
 
 void disabelRawMode(){
   if (tcsetattr(STDIN_FILENO, TCSANOW, &screen.orginanl_config) == -1)
@@ -86,6 +174,15 @@ void enableRawMode(){
 /*
  *    Screen
  */
+
+void screenAddArray(){
+  for (int row = 0; row < screen.height; row++){
+    for (int col = 0; col < screen.width; col++){
+      appendScreenBuffer(screenBufferArray, &screenArray[row][col], 1);
+    }
+  }
+
+}
 
 int screenGetSize_NonPosix(int *height, int *width){
   if ((write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12)) != 12)
@@ -134,42 +231,44 @@ void screenExit(){
 }
 
 int screenReadKey(){
-  int nread;
   char c;
 
-  while((nread = read(STDIN_FILENO, &c , 1)) != 1){
-    if (nread == -1 && errno != EAGAIN)
-      die("read");
+  ssize_t nread = read(STDIN_FILENO, &c , 1);
+  if (nread == 1){
+    if (c == 'q'){
+      screenExit();
+      return c;
+    }
   }
   
-  if (c == 'q'){
-    screenExit();
-    return 1;
-  }
 
-  return c;
+  return -1;
 }
 
 void screenReloadScreen(){
-  char c = screenReadKey();
+  struct timespec req;
+  req.tv_sec = 0;
+  req.tv_nsec = 10000000L;
+  //nanosleep(&req, NULL);
+  sleep(1);
+  screenReadKey();
 
-  write(STDOUT_FILENO, "\x1b[H", 3);
   write(STDOUT_FILENO, "\x1b[2J", 4);
+  write(STDOUT_FILENO, "\x1b[H", 3);
   write(STDOUT_FILENO, "\x1b[?25l", 6);
 
+  screenAddArray();
 
+  write(STDOUT_FILENO, screenBufferArray->data, screenBufferArray->size);
 
+  /*
   char data[32];
   int len = snprintf(data, sizeof(data), "height : %d, width : %d\n" , screen.height, screen.width);
   data[len] = '\0';
 
   write(STDOUT_FILENO, data, len );
+  */
 
-
-  char data1[32];
-  double randomNumber = generateRandomNumber(50,100);
-  int len1 = snprintf(data1, sizeof(data), "random number : %.2f\n", randomNumber);
-  write(STDOUT_FILENO, data1, len1);
 
 }
 
@@ -177,12 +276,36 @@ void screenReloadScreen(){
  *    INITIALIZAATION
  */
 
+int signalInit(){
+  struct sigaction sa = {0};
+  memset(&sa , 0 , sizeof(sa));
+  sa.sa_handler = sizeChangeHandler;
+  sa.sa_flags = SA_RESTART;
+  return sigaction(SIGWINCH, &sa , NULL);
+}
 
 void init(){
   write(STDOUT_FILENO, "\x1b[?1049h", 8);
+  write(STDOUT_FILENO, "\x1b[?25l", 6);
+  screen.screenSizeCH = 0;
+
   if (screenGetSize(&screen.height, &screen.width) == -1)
     die("window size");
+
+  if (signalInit() == -1)
+    die("sigaction error");
+
+  screen.max_height = screen.height;
+  screen.max_width = screen.width;
+
+  write(STDOUT_FILENO, "\x1b[H", 3);
+  write(STDOUT_FILENO, "\x1b[2J", 4);
+
   srand((unsigned int) time(NULL));
+
+  screenArrayInit();
+  randomizeScreenArray();
+  initScreenBuffer(&screenBufferArray);
 
 }
 
@@ -191,6 +314,10 @@ int main(int argc, char *arg[]){
   init();
 
   while (1){
+    if (screen.screenSizeCH == 1){
+      screen.screenSizeCH = 0;
+      screenArrayUpdate();
+    }
     screenReloadScreen();
   }
   return 0;
