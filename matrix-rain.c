@@ -14,6 +14,9 @@
  *    DEFINE
  */
 
+#define color "\x1b"
+
+
 typedef struct {
   struct termios orginanl_config;
   int height;
@@ -38,9 +41,18 @@ typedef struct{
   int timeToDie;
 } element;
 
+
+typedef struct {
+  int length;
+  int exist;
+  int rowNum;
+
+}matrixData;
+
 element *screenData;
 char **screenArray;
 screenBuffer *screenBufferArray;
+matrixData *matrix;
 
 /*
  * predefines
@@ -48,11 +60,19 @@ screenBuffer *screenBufferArray;
 
 int screenGetSize(int *height, int *width);
 void die(const char* error);
+int generateRandomNumber(int low, int high);
 
 /*
  *      HELPER FUNCTION
  */
 
+int min(int a, int b){
+  return a < b ? a : b;
+}
+
+int max(int a, int b){
+  return a > b ? a : b;
+}
 
 void appendScreenBuffer(screenBuffer *array, char *str, int len){
   char *new = realloc(array->data, array->size + len);
@@ -74,6 +94,11 @@ void clearScreenBuffer(screenBuffer **array){
   free((*array)->data);
   (*array)->data = NULL;
   (*array)->size = 0;
+}
+
+void freeScreenArray(){
+  for (int row = 0 ; row < screen.height; row++)
+    free(screenArray[row]);
 }
 
 void initScreenBuffer(screenBuffer **array){
@@ -114,7 +139,7 @@ void randomizeScreenArray(){
 void screenArrayInit(){
   screenArray = malloc(screen.height * sizeof(char*));
   for (int row = 0 ; row < screen.height ; row++){
-    screenArray[row] = (char*) malloc(screen.width * sizeof(char *));
+    screenArray[row] = (char*) malloc(screen.width * sizeof(char));
   }
 }
 
@@ -130,6 +155,86 @@ void screenArrayUpdate(){
       screenArray[row][col] = generateRandomNumber(33, 126);
     }
   }
+
+}
+
+/*
+ *    MATRIX
+ */
+void initMatrixData(){
+  matrix = malloc(sizeof(matrixData) * (screen.width));
+  if (matrix == NULL)
+    die("matrix declaration error");
+  for (int ind = 0; ind < screen.width; ind++){
+
+    matrix[ind].exist = 0;
+    matrix[ind].rowNum = 0;
+    matrix[ind].length = 0;
+
+    int randomLen = generateRandomNumber(0,screen.height);
+    if (randomLen > screen.height/3){
+      matrix[ind].exist = 1;
+      matrix[ind].rowNum = 0;
+      matrix[ind].length = randomLen;
+    }
+  }
+
+}
+
+int matrixUpdate(){
+  for (int col = 0; col < screen.width; col++){
+    if (!matrix[col].exist)
+        continue;
+
+    int start = matrix[col].rowNum;
+    int length = matrix[col].length;
+
+    if (matrix[col].rowNum > screen.height){
+      length -= (matrix[col].rowNum - screen.height);
+      start = screen.height - 1;
+    }
+
+    int row = start;
+    char change[20];
+    for (int e = 0; e < length; e++){
+      row = start - e;
+
+      if (row < 0 || row >= screen.height)
+        continue;
+
+      int changeLen = snprintf(change, sizeof(change), "\x1b[%d;%dH%c", row + 1, col + 1, screenArray[row][col]);
+
+      write(STDOUT_FILENO, change, changeLen); 
+    }
+
+    matrix[col].rowNum++;
+
+    if (matrix[col].rowNum - matrix[col].length > screen.height){
+      matrix[col].exist = 0;
+      continue;
+    }
+
+    int tail = max(matrix[col].rowNum - matrix[col].length, 0);
+
+    if (tail == 0)
+      continue;
+
+    for (int e = 0; e < screen.height - tail ; e++){
+      row = tail - e;
+
+      if (row < 0 || row >= screen.height)
+        continue;
+
+      int changeLen = snprintf(change, sizeof(change), "\x1b[%d;%dH%c", row + 1, col + 1, ' ');
+
+      write(STDOUT_FILENO, change, changeLen); 
+
+    }
+
+     
+
+  }
+  return 1; 
 
 }
 
@@ -176,7 +281,7 @@ void enableRawMode(){
  */
 
 void screenAddArray(){
-  for (int row = 0; row < screen.height; row++){
+  for (int row = 0; row < 4; row++){
     for (int col = 0; col < screen.width; col++){
       appendScreenBuffer(screenBufferArray, &screenArray[row][col], 1);
     }
@@ -248,27 +353,11 @@ int screenReadKey(){
 void screenReloadScreen(){
   struct timespec req;
   req.tv_sec = 0;
-  req.tv_nsec = 10000000L;
-  //nanosleep(&req, NULL);
-  sleep(1);
+  req.tv_nsec = 166666666L;
+  nanosleep(&req, NULL);
+  //sleep(1);
   screenReadKey();
-
-  write(STDOUT_FILENO, "\x1b[2J", 4);
-  write(STDOUT_FILENO, "\x1b[H", 3);
-  write(STDOUT_FILENO, "\x1b[?25l", 6);
-
-  screenAddArray();
-
-  write(STDOUT_FILENO, screenBufferArray->data, screenBufferArray->size);
-
-  /*
-  char data[32];
-  int len = snprintf(data, sizeof(data), "height : %d, width : %d\n" , screen.height, screen.width);
-  data[len] = '\0';
-
-  write(STDOUT_FILENO, data, len );
-  */
-
+  int val = matrixUpdate();
 
 }
 
@@ -306,6 +395,7 @@ void init(){
   screenArrayInit();
   randomizeScreenArray();
   initScreenBuffer(&screenBufferArray);
+  initMatrixData();
 
 }
 
@@ -316,7 +406,10 @@ int main(int argc, char *arg[]){
   while (1){
     if (screen.screenSizeCH == 1){
       screen.screenSizeCH = 0;
+      write(STDOUT_FILENO, "\x1b[H\x1b[2J", 7);
+      freeScreenArray();
       screenArrayUpdate();
+      initMatrixData();
     }
     screenReloadScreen();
   }
