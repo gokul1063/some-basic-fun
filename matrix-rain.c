@@ -14,8 +14,12 @@
  *    DEFINE
  */
 
-#define color "\x1b"
 
+#define ANSI_RESET   "\x1b[0m"
+#define ANSI_WHITE   "\x1b[97m"
+#define ANSI_GREEN_DIM   "\x1b[2;32m"
+#define ANSI_GREEN_NORM  "\x1b[32m"
+#define ANSI_GREEN_BRIGHT "\x1b[1;32m"
 
 typedef struct {
   struct termios orginanl_config;
@@ -73,6 +77,7 @@ int min(int a, int b){
 int max(int a, int b){
   return a > b ? a : b;
 }
+
 
 void appendScreenBuffer(screenBuffer *array, char *str, int len){
   char *new = realloc(array->data, array->size + len);
@@ -181,61 +186,137 @@ void initMatrixData(){
 
 }
 
-int matrixUpdate(){
-  for (int col = 0; col < screen.width; col++){
-    if (!matrix[col].exist)
-        continue;
-
-    int start = matrix[col].rowNum;
-    int length = matrix[col].length;
-
-    if (matrix[col].rowNum > screen.height){
-      length -= (matrix[col].rowNum - screen.height);
-      start = screen.height - 1;
+void MatrixElementUpdate(matrixData *ele){
+    int randomLen = generateRandomNumber(0,screen.height);
+    if (randomLen > screen.height/3){
+      ele->exist = 1;
+      ele->rowNum = 0;
+      ele->length = randomLen;
     }
 
-    int row = start;
-    char change[20];
-    for (int e = 0; e < length; e++){
-      row = start - e;
+}
+/*
+int matrixUpdate() {
+  for (int col = 0; col < screen.width; col++) {
 
+    if (!matrix[col].exist)
+      continue;
+
+    int head = matrix[col].rowNum;
+    int tail = matrix[col].rowNum - matrix[col].length + 1;
+
+    for (int row = head; row >= tail; row--) {
       if (row < 0 || row >= screen.height)
         continue;
 
-      int changeLen = snprintf(change, sizeof(change), "\x1b[%d;%dH%c", row + 1, col + 1, screenArray[row][col]);
+      const char *color;
 
-      write(STDOUT_FILENO, change, changeLen); 
+      if (row == head) {
+        color = ANSI_WHITE;
+      } else {
+        int dist = head - row;
+
+        if (dist < 2)
+          color = ANSI_GREEN_BRIGHT;
+        else if (dist < matrix[col].length / 2)
+          color = ANSI_GREEN_NORM;
+        else
+          color = ANSI_GREEN_DIM;
+      }
+
+      char buf[32];
+      int len = snprintf(
+        buf, sizeof(buf),
+        "\x1b[%d;%dH%s%c%s",
+        row + 1, col + 1,
+        color,
+        screenArray[row][col],
+        ANSI_RESET
+      );
+      write(STDOUT_FILENO, buf, len);
+    }
+
+    int erase = tail - 1;
+    if (erase >= 0 && erase < screen.height) {
+      char buf[20];
+      int len = snprintf(
+        buf, sizeof(buf),
+        "\x1b[%d;%dH ",
+        erase + 1, col + 1
+      );
+      write(STDOUT_FILENO, buf, len);
     }
 
     matrix[col].rowNum++;
 
-    if (matrix[col].rowNum - matrix[col].length > screen.height){
+    if (tail > screen.height - 1) {
       matrix[col].exist = 0;
-      continue;
+      MatrixElementUpdate(&matrix[col]);
     }
+  }
+  return 1;
+}
 
-    int tail = max(matrix[col].rowNum - matrix[col].length, 0);
+*/
 
-    if (tail == 0)
+int matrixUpdate() {
+  for (int col = 0; col < screen.width; col++) {
+
+    if (!matrix[col].exist)
       continue;
 
-    for (int e = 0; e < screen.height - tail ; e++){
-      row = tail - e;
+    int head = matrix[col].rowNum;
+    int tail = matrix[col].rowNum - matrix[col].length + 1;
 
+    for (int row = head; row >= tail; row--) {
       if (row < 0 || row >= screen.height)
         continue;
 
-      int changeLen = snprintf(change, sizeof(change), "\x1b[%d;%dH%c", row + 1, col + 1, ' ');
+      const char *color;
 
-      write(STDOUT_FILENO, change, changeLen); 
+      if (row == head){
+        color = ANSI_WHITE;
+      } else {
+        int dist = head - row;
+        if (dist < 3)
+          color = ANSI_GREEN_BRIGHT;
+        else if (dist < matrix[col].length/2)
+          color = ANSI_GREEN_NORM;
+        else 
+          color = ANSI_GREEN_DIM;
+      }
 
+      char buf[20];
+      int len = snprintf(
+        buf, sizeof(buf),
+        "\x1b[%d;%dH%s%c%s",
+        row + 1, col + 1,
+        color,
+        screenArray[row][col],
+        ANSI_RESET
+      );
+      write(STDOUT_FILENO, buf, len);
     }
 
-     
+    int erase = tail - 1;
+    if (erase >= 0 && erase < screen.height) {
+      char buf[20];
+      int len = snprintf(
+        buf, sizeof(buf),
+        "\x1b[%d;%dH ",
+        erase + 1, col + 1
+      );
+      write(STDOUT_FILENO, buf, len);
+    }
 
+    matrix[col].rowNum++;
+
+    if (tail > screen.height - 1) {
+      matrix[col].exist = 0;
+      MatrixElementUpdate(&matrix[col]); 
+    }
   }
-  return 1; 
-
+  return 1;
 }
 
 
