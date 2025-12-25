@@ -21,3 +21,16 @@ gcc sleep.c -nostdlib -fno-stack-protector -o sleep
 
 --------------------------------------------------
 
+[ OVERVIEW ]
+--------------------------------------------------
+Terminal-based Matrix rain animation using raw TTY control, ANSI escape sequences, and direct POSIX syscalls.
+
+[ METHODS USED ]
+--------------------------------------------------
+termios raw mode | ANSI escape rendering | SIGWINCH handling | nanosleep timing | ioctl(TIOCGWINSZ)
+
+[ COMPILE ]
+--------------------------------------------------
+gcc matrix-rain.c -o matrix-rain
+
+--------------------------------------------------

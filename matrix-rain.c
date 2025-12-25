@@ -25,24 +25,15 @@ typedef struct {
   struct termios orginanl_config;
   int height;
   int width;
-  int max_height;
-  int max_width;
   volatile sig_atomic_t screenSizeCH;
 
 } system_config;
 
 system_config screen;
 
-typedef struct {
-  char *data;
-  int size;
-
-} screenBuffer;
-
 typedef struct{
   char character;
   int age;
-  int timeToDie;
 } element;
 
 
@@ -55,7 +46,6 @@ typedef struct {
 
 element *screenData;
 char **screenArray;
-screenBuffer *screenBufferArray;
 matrixData *matrix;
 
 /*
@@ -79,38 +69,12 @@ int max(int a, int b){
 }
 
 
-void appendScreenBuffer(screenBuffer *array, char *str, int len){
-  char *new = realloc(array->data, array->size + len);
-  if (new == NULL)
-    die("realloc in appendScreenBuffer");
-  memcpy(&new[array->size], str, len);
-  array->data = new;
-  array->size += len;
-
-}
-
-void freeScreenBuffer(screenBuffer **array){
-  free((*array)->data);
-  free(array);
-
-}
-
-void clearScreenBuffer(screenBuffer **array){
-  free((*array)->data);
-  (*array)->data = NULL;
-  (*array)->size = 0;
-}
 
 void freeScreenArray(){
   for (int row = 0 ; row < screen.height; row++)
     free(screenArray[row]);
 }
 
-void initScreenBuffer(screenBuffer **array){
-  *array = (screenBuffer*)malloc(sizeof(screenBuffer));
-  (*array)->data = NULL;
-  (*array)->size = 0;
-}
 
 void die(const char* error){
   write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -149,8 +113,6 @@ void screenArrayInit(){
 }
 
 void screenArrayUpdate(){
-  clearScreenBuffer(&screenBufferArray);
-  initScreenBuffer(&screenBufferArray);
   if (screenGetSize(&screen.height, &screen.width) == -1)
     die("window size");
   screenArrayInit();
@@ -195,69 +157,6 @@ void MatrixElementUpdate(matrixData *ele){
     }
 
 }
-/*
-int matrixUpdate() {
-  for (int col = 0; col < screen.width; col++) {
-
-    if (!matrix[col].exist)
-      continue;
-
-    int head = matrix[col].rowNum;
-    int tail = matrix[col].rowNum - matrix[col].length + 1;
-
-    for (int row = head; row >= tail; row--) {
-      if (row < 0 || row >= screen.height)
-        continue;
-
-      const char *color;
-
-      if (row == head) {
-        color = ANSI_WHITE;
-      } else {
-        int dist = head - row;
-
-        if (dist < 2)
-          color = ANSI_GREEN_BRIGHT;
-        else if (dist < matrix[col].length / 2)
-          color = ANSI_GREEN_NORM;
-        else
-          color = ANSI_GREEN_DIM;
-      }
-
-      char buf[32];
-      int len = snprintf(
-        buf, sizeof(buf),
-        "\x1b[%d;%dH%s%c%s",
-        row + 1, col + 1,
-        color,
-        screenArray[row][col],
-        ANSI_RESET
-      );
-      write(STDOUT_FILENO, buf, len);
-    }
-
-    int erase = tail - 1;
-    if (erase >= 0 && erase < screen.height) {
-      char buf[20];
-      int len = snprintf(
-        buf, sizeof(buf),
-        "\x1b[%d;%dH ",
-        erase + 1, col + 1
-      );
-      write(STDOUT_FILENO, buf, len);
-    }
-
-    matrix[col].rowNum++;
-
-    if (tail > screen.height - 1) {
-      matrix[col].exist = 0;
-      MatrixElementUpdate(&matrix[col]);
-    }
-  }
-  return 1;
-}
-
-*/
 
 int matrixUpdate() {
   for (int col = 0; col < screen.width; col++) {
@@ -361,14 +260,6 @@ void enableRawMode(){
  *    Screen
  */
 
-void screenAddArray(){
-  for (int row = 0; row < 4; row++){
-    for (int col = 0; col < screen.width; col++){
-      appendScreenBuffer(screenBufferArray, &screenArray[row][col], 1);
-    }
-  }
-
-}
 
 int screenGetSize_NonPosix(int *height, int *width){
   if ((write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12)) != 12)
@@ -465,8 +356,6 @@ void init(){
   if (signalInit() == -1)
     die("sigaction error");
 
-  screen.max_height = screen.height;
-  screen.max_width = screen.width;
 
   write(STDOUT_FILENO, "\x1b[H", 3);
   write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -475,7 +364,6 @@ void init(){
 
   screenArrayInit();
   randomizeScreenArray();
-  initScreenBuffer(&screenBufferArray);
   initMatrixData();
 
 }
